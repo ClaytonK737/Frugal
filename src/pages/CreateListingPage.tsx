@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { ArrowLeft, Upload, CheckCircle2, AlertCircle } from 'lucide-react';
+import { collection, addDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { useApp } from '../context/AppContext';
+import { SaleListing } from '../types';
 
 interface ListingForm {
   isbn: string;
@@ -20,13 +23,16 @@ const conditions = [
   { value: 'poor', label: 'Poor', desc: 'Heavy wear, but all content readable' },
 ];
 
+const emptyForm: ListingForm = {
+  isbn: '', title: '', author: '', edition: '', price: '', condition: '', description: '',
+};
+
 export default function CreateListingPage() {
-  const { navigate, isAuthenticated } = useApp();
-  const [form, setForm] = useState<ListingForm>({
-    isbn: '', title: '', author: '', edition: '', price: '', condition: '', description: '',
-  });
+  const { navigate, isAuthenticated, user } = useApp();
+  const [form, setForm] = useState<ListingForm>(emptyForm);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   if (!isAuthenticated) {
     return (
@@ -61,7 +67,7 @@ export default function CreateListingPage() {
             View Marketplace
           </button>
           <button
-            onClick={() => { setForm({ isbn: '', title: '', author: '', edition: '', price: '', condition: '', description: '' }); setSubmitted(false); }}
+            onClick={() => { setForm(emptyForm); setSubmitted(false); }}
             className="px-6 py-3 border border-slate-200 text-slate-700 font-medium rounded-lg hover:border-slate-300 transition-colors"
           >
             Post Another
@@ -77,18 +83,51 @@ export default function CreateListingPage() {
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (!form.isbn || !form.title || !form.author || !form.price || !form.condition) {
       setError('Please fill in all required fields.');
       return;
     }
-    if (isNaN(parseFloat(form.price)) || parseFloat(form.price) <= 0) {
+    const price = parseFloat(form.price);
+    if (isNaN(price) || price <= 0) {
       setError('Please enter a valid price.');
       return;
     }
-    setSubmitted(true);
+    setLoading(true);
+    try {
+      const now = new Date().toISOString().split('T')[0];
+      const listing: Omit<SaleListing, 'listingId'> = {
+        price,
+        description: form.description,
+        status: 'active',
+        condition: form.condition as SaleListing['condition'],
+        sellerId: user!.userId,
+        sellerName: `${user!.firstName} ${user!.lastName}`,
+        createdDate: now,
+        product: {
+          productId: crypto.randomUUID(),
+          name: form.title,
+          title: form.title,
+          author: form.author,
+          isbn: form.isbn,
+          edition: form.edition,
+          publisher: '',
+          description: form.description,
+          price: 0,
+          category: 'textbook',
+          createdDate: now,
+        },
+      };
+      const ref = await addDoc(collection(db, 'listings'), listing);
+      await ref;
+      setSubmitted(true);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to create listing.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const inputClass = 'w-full px-4 py-3 rounded-lg border border-slate-200 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 outline-none text-slate-800 placeholder-slate-400 text-sm transition-all';
@@ -241,9 +280,10 @@ export default function CreateListingPage() {
 
         <button
           type="submit"
-          className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-lg transition-colors"
+          disabled={loading}
+          className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-300 text-white font-semibold rounded-lg transition-colors"
         >
-          Publish Listing
+          {loading ? 'Publishing...' : 'Publish Listing'}
         </button>
       </form>
     </div>

@@ -1,8 +1,9 @@
-import { useState } from 'react';
-import { ShoppingBag, Plus, Filter } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ShoppingBag, Plus, Filter, Loader2 } from 'lucide-react';
+import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { useApp } from '../context/AppContext';
 import ListingCard from '../components/ui/ListingCard';
-import { mockSaleListings } from '../data/mockData';
 import { SaleListing } from '../types';
 
 type ConditionFilter = 'all' | SaleListing['condition'];
@@ -17,11 +18,35 @@ const conditionOptions: { value: ConditionFilter; label: string }[] = [
 ];
 
 export default function MarketplacePage() {
-  const { navigate, isAuthenticated } = useApp();
+  const { navigate, isAuthenticated, user } = useApp();
+  const [listings, setListings] = useState<SaleListing[]>([]);
+  const [loading, setLoading] = useState(true);
   const [condition, setCondition] = useState<ConditionFilter>('all');
   const [sortBy, setSortBy] = useState<'price-asc' | 'price-desc' | 'newest'>('newest');
 
-  const filtered = mockSaleListings
+  useEffect(() => {
+    const fetchListings = async () => {
+      const snap = await getDocs(collection(db, 'listings'));
+      const data = snap.docs.map((d) => ({ listingId: d.id, ...d.data() } as SaleListing));
+      setListings(data);
+      setLoading(false);
+    };
+    fetchListings();
+  }, []);
+
+  const handleMarkSold = async (listingId: string) => {
+    await updateDoc(doc(db, 'listings', listingId), { status: 'sold' });
+    setListings((prev) =>
+      prev.map((l) => (l.listingId === listingId ? { ...l, status: 'sold' } : l))
+    );
+  };
+
+  const handleDelete = async (listingId: string) => {
+    await deleteDoc(doc(db, 'listings', listingId));
+    setListings((prev) => prev.filter((l) => l.listingId !== listingId));
+  };
+
+  const filtered = listings
     .filter((l) => l.status === 'active')
     .filter((l) => condition === 'all' || l.condition === condition)
     .sort((a, b) => {
@@ -85,40 +110,49 @@ export default function MarketplacePage() {
         </div>
       </div>
 
-      <div className="mb-4">
-        <p className="text-sm text-slate-500">
-          <span className="font-semibold text-slate-800">{filtered.length}</span>{' '}
-          active {filtered.length === 1 ? 'listing' : 'listings'}
-        </p>
-      </div>
-
-      {filtered.length === 0 ? (
-        <div className="text-center py-16">
-          <ShoppingBag className="w-14 h-14 text-slate-200 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-slate-700 mb-2">No listings found</h3>
-          <p className="text-slate-500 text-sm mb-6">Try adjusting your filters.</p>
-          {isAuthenticated && (
-            <button
-              onClick={() => navigate('create-listing')}
-              className="flex items-center gap-2 px-6 py-3 bg-emerald-500 text-white font-medium rounded-lg hover:bg-emerald-600 transition-colors mx-auto"
-            >
-              <Plus className="w-4 h-4" />
-              Post a Listing
-            </button>
-          )}
+      {loading ? (
+        <div className="flex items-center justify-center py-24">
+          <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filtered.map((listing) => (
-            <ListingCard
-              key={listing.listingId}
-              listing={listing}
-              onContact={() => {
-                if (!isAuthenticated) navigate('login');
-              }}
-            />
-          ))}
-        </div>
+        <>
+          <div className="mb-4">
+            <p className="text-sm text-slate-500">
+              <span className="font-semibold text-slate-800">{filtered.length}</span>{' '}
+              active {filtered.length === 1 ? 'listing' : 'listings'}
+            </p>
+          </div>
+
+          {filtered.length === 0 ? (
+            <div className="text-center py-16">
+              <ShoppingBag className="w-14 h-14 text-slate-200 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-slate-700 mb-2">No listings found</h3>
+              <p className="text-slate-500 text-sm mb-6">Try adjusting your filters.</p>
+              {isAuthenticated && (
+                <button
+                  onClick={() => navigate('create-listing')}
+                  className="flex items-center gap-2 px-6 py-3 bg-emerald-500 text-white font-medium rounded-lg hover:bg-emerald-600 transition-colors mx-auto"
+                >
+                  <Plus className="w-4 h-4" />
+                  Post a Listing
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {filtered.map((listing) => (
+                <ListingCard
+                  key={listing.listingId}
+                  listing={listing}
+                  isOwner={user?.userId === listing.sellerId}
+                  onContact={() => { if (!isAuthenticated) navigate('login'); }}
+                  onMarkSold={() => handleMarkSold(listing.listingId)}
+                  onDelete={() => handleDelete(listing.listingId)}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {!isAuthenticated && (

@@ -1,4 +1,4 @@
-import { Tag, User, Calendar, CheckCircle } from 'lucide-react';
+import { Tag, User, Calendar, CheckCircle, Trash2, BadgeCheck } from 'lucide-react';
 import { SaleListing } from '../../types';
 import { useApp } from '../../context/AppContext';
 
@@ -20,10 +20,13 @@ const conditionLabel: Record<SaleListing['condition'], string> = {
 
 interface ListingCardProps {
   listing: SaleListing;
+  isOwner?: boolean;
   onContact?: () => void;
+  onMarkSold?: () => void;
+  onDelete?: () => void;
 }
 
-export default function ListingCard({ listing, onContact }: ListingCardProps) {
+export default function ListingCard({ listing, isOwner, onContact, onMarkSold, onDelete }: ListingCardProps) {
   const { navigate } = useApp();
   const savings = listing.product.price - listing.price;
   const savingsPct = Math.round((savings / listing.product.price) * 100);
@@ -51,9 +54,7 @@ export default function ListingCard({ listing, onContact }: ListingCardProps) {
         <p className="text-xs text-slate-500 line-clamp-2 mb-4">{listing.description}</p>
 
         <div className="flex items-center gap-2 mb-4">
-          <div>
-            <span className="text-2xl font-bold text-slate-900">${listing.price.toFixed(2)}</span>
-          </div>
+          <span className="text-2xl font-bold text-slate-900">${listing.price.toFixed(2)}</span>
           {savings > 0 && (
             <div className="flex items-center gap-1">
               <span className="text-xs text-slate-400 line-through">${listing.product.price.toFixed(2)}</span>
@@ -64,35 +65,50 @@ export default function ListingCard({ listing, onContact }: ListingCardProps) {
           )}
         </div>
 
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 text-xs text-slate-400">
-            <span className="flex items-center gap-1">
-              <User className="w-3.5 h-3.5" />
-              {listing.sellerName}
-            </span>
-            <span className="flex items-center gap-1">
-              <Calendar className="w-3.5 h-3.5" />
-              {new Date(listing.createdDate).toLocaleDateString()}
-            </span>
-          </div>
+        <div className="flex items-center gap-3 text-xs text-slate-400 mb-4">
+          <span className="flex items-center gap-1">
+            <User className="w-3.5 h-3.5" />
+            {listing.sellerName}
+          </span>
+          <span className="flex items-center gap-1">
+            <Calendar className="w-3.5 h-3.5" />
+            {new Date(listing.createdDate).toLocaleDateString()}
+          </span>
         </div>
 
-        <div className="mt-4 flex gap-2">
-          <button
-            onClick={onContact}
-            className="flex-1 flex items-center justify-center gap-2 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium rounded-lg transition-colors"
-          >
-            <Tag className="w-4 h-4" />
-            Contact Seller
-          </button>
-          <button
-            onClick={() => navigate('book-detail', { book: listing.product })}
-            className="flex items-center justify-center gap-2 px-4 py-2 border border-slate-200 hover:border-slate-300 text-slate-600 text-sm font-medium rounded-lg transition-colors"
-          >
-            <CheckCircle className="w-4 h-4" />
-            Details
-          </button>
-        </div>
+        {isOwner ? (
+          <div className="flex gap-2">
+            <button
+              onClick={onMarkSold}
+              className="flex-1 flex items-center justify-center gap-2 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              <BadgeCheck className="w-4 h-4" />
+              Mark Sold
+            </button>
+            <button
+              onClick={onDelete}
+              className="flex items-center justify-center gap-2 px-4 py-2 border border-red-200 hover:bg-red-50 text-red-500 text-sm font-medium rounded-lg transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <button
+              onClick={onContact}
+              className="flex-1 flex items-center justify-center gap-2 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              <Tag className="w-4 h-4" />
+              Contact Seller
+            </button>
+            <button
+              onClick={() => navigate('book-detail', { book: listing.product })}
+              className="flex items-center justify-center gap-2 px-4 py-2 border border-slate-200 hover:border-slate-300 text-slate-600 text-sm font-medium rounded-lg transition-colors"
+            >
+              <CheckCircle className="w-4 h-4" />
+            </button>
+          </div>
+        )}
       </div>
 
       {listing.status === 'sold' && (

@@ -1,6 +1,20 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+} from 'firebase/auth';
+import {
+  doc,
+  setDoc,
+  getDoc,
+  collection,
+  getDocs,
+  deleteDoc,
+} from 'firebase/firestore';
+import { auth, db } from '../lib/firebase';
 import { Page, User, Textbook, WishlistItem } from '../types';
-import { mockWishlist } from '../data/mockData';
 
 interface AppContextValue {
   currentPage: Page;
@@ -8,11 +22,13 @@ interface AppContextValue {
   pageParams: Record<string, unknown>;
   user: User | null;
   isAuthenticated: boolean;
-  login: (email: string, _password: string) => void;
-  logout: () => void;
+  authLoading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  register: (firstName: string, lastName: string, email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
   wishlist: WishlistItem[];
-  addToWishlist: (book: Textbook) => void;
-  removeFromWishlist: (productId: string) => void;
+  addToWishlist: (book: Textbook) => Promise<void>;
+  removeFromWishlist: (productId: string) => Promise<void>;
   favorites: Textbook[];
   toggleFavorite: (book: Textbook) => void;
 }
@@ -23,8 +39,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [currentPage, setCurrentPage] = useState<Page>('home');
   const [pageParams, setPageParams] = useState<Record<string, unknown>>({});
   const [user, setUser] = useState<User | null>(null);
-  const [wishlist, setWishlist] = useState<WishlistItem[]>(mockWishlist);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
   const [favorites, setFavorites] = useState<Textbook[]>([]);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        const snap = await getDoc(doc(db, 'users', firebaseUser.uid));
+        if (snap.exists()) {
+          const data = snap.data();
+          setUser({
+            userId: firebaseUser.uid,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            email: firebaseUser.email ?? '',
+            wishList: [],
+          });
+        }
+        const wishlistSnap = await getDocs(
+          collection(db, 'users', firebaseUser.uid, 'wishlist')
+        );
+        const items: WishlistItem[] = wishlistSnap.docs.map((d) => d.data() as WishlistItem);
+        setWishlist(items);
+      } else {
+        setUser(null);
+        setWishlist([]);
+      }
+      setAuthLoading(false);
+    });
+    return unsubscribe;
+  }, []);
 
   const navigate = (page: Page, params: Record<string, unknown> = {}) => {
     setCurrentPage(page);
@@ -32,35 +77,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
     window.scrollTo(0, 0);
   };
 
-  const login = (email: string, _password: string) => {
-    setUser({
-      userId: 'u1',
-      firstName: 'Alex',
-      lastName: 'Johnson',
-      email,
-      wishList: [],
-      savedMoney: 124.50,
-    });
+  const login = async (email: string, password: string) => {
+    await signInWithEmailAndPassword(auth, email, password);
     navigate('home');
   };
 
-  const logout = () => {
-    setUser(null);
+  const register = async (firstName: string, lastName: string, email: string, password: string) => {
+    const { user: firebaseUser } = await createUserWithEmailAndPassword(auth, email, password);
+    await setDoc(doc(db, 'users', firebaseUser.uid), { firstName, lastName, email });
     navigate('home');
   };
 
-  const addToWishlist = (book: Textbook) => {
+  const logout = async () => {
+    await signOut(auth);
+    setWishlist([]);
+    setFavorites([]);
+    navigate('home');
+  };
+
+  const addToWishlist = async (book: Textbook) => {
     const exists = wishlist.some((w) => w.book.productId === book.productId);
-    if (!exists) {
-      setWishlist((prev) => [
-        ...prev,
-        { book, addedDate: new Date().toISOString().split('T')[0] },
-      ]);
-    }
+    if (exists || !user) return;
+    const item: WishlistItem = { book, addedDate: new Date().toISOString().split('T')[0] };
+    setWishlist((prev) => [...prev, item]);
+    await setDoc(doc(db, 'users', user.userId, 'wishlist', book.productId), item);
   };
 
-  const removeFromWishlist = (productId: string) => {
+  const removeFromWishlist = async (productId: string) => {
+    if (!user) return;
     setWishlist((prev) => prev.filter((w) => w.book.productId !== productId));
+    await deleteDoc(doc(db, 'users', user.userId, 'wishlist', productId));
   };
 
   const toggleFavorite = (book: Textbook) => {
@@ -80,7 +126,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         pageParams,
         user,
         isAuthenticated: user !== null,
+        authLoading,
         login,
+        register,
         logout,
         wishlist,
         addToWishlist,

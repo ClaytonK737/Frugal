@@ -3,7 +3,7 @@ import { DollarSign, Eye, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react
 import { useApp } from '../context/AppContext';
 
 export default function RegisterPage() {
-  const { navigate, login } = useApp();
+  const { navigate, register } = useApp();
   const [form, setForm] = useState({
     firstName: '',
     lastName: '',
@@ -50,10 +50,13 @@ export default function RegisterPage() {
       return;
     }
     setLoading(true);
-    setTimeout(() => {
-      login(form.email, form.password);
+    try {
+      await register(form.firstName, form.lastName, form.email, form.password);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Registration failed.';
+      setError(msg);
       setLoading(false);
-    }, 800);
+    }
   };
 
   return (

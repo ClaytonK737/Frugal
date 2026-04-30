@@ -18,10 +18,13 @@ export default function LoginPage() {
       return;
     }
     setLoading(true);
-    setTimeout(() => {
-      login(email, password);
+    try {
+      await login(email, password);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Login failed.';
+      setError(msg);
       setLoading(false);
-    }, 800);
+    }
   };
 
   return (
