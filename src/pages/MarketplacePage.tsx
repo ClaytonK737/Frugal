@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ShoppingBag, Plus, Filter, Loader2 } from 'lucide-react';
-import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import * as api from '../lib/api';
 import { useApp } from '../context/AppContext';
 import ListingCard from '../components/ui/ListingCard';
 import { SaleListing } from '../types';
@@ -25,24 +24,21 @@ export default function MarketplacePage() {
   const [sortBy, setSortBy] = useState<'price-asc' | 'price-desc' | 'newest'>('newest');
 
   useEffect(() => {
-    const fetchListings = async () => {
-      const snap = await getDocs(collection(db, 'listings'));
-      const data = snap.docs.map((d) => ({ listingId: d.id, ...d.data() } as SaleListing));
+    api.fetchListings().then((data) => {
       setListings(data);
       setLoading(false);
-    };
-    fetchListings();
+    });
   }, []);
 
   const handleMarkSold = async (listingId: string) => {
-    await updateDoc(doc(db, 'listings', listingId), { status: 'sold' });
+    await api.markListingSold(listingId);
     setListings((prev) =>
       prev.map((l) => (l.listingId === listingId ? { ...l, status: 'sold' } : l))
     );
   };
 
   const handleDelete = async (listingId: string) => {
-    await deleteDoc(doc(db, 'listings', listingId));
+    await api.deleteListing(listingId);
     setListings((prev) => prev.filter((l) => l.listingId !== listingId));
   };
 

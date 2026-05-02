@@ -1,19 +1,42 @@
+import { useMemo, useEffect, useState } from 'react';
 import { ArrowLeft, BookOpen, Heart, Star, PlusCircle, Share2 } from 'lucide-react';
+import * as api from '../lib/api';
 import { useApp } from '../context/AppContext';
 import PriceComparisonTable from '../components/ui/PriceComparisonTable';
-import { mockPriceComparisons, mockTextbooks } from '../data/mockData';
-import { Textbook } from '../types';
+import ListingCard from '../components/ui/ListingCard';
+import { mockTextbooks } from '../data/mockData';
+import { generatePriceComparisons, searchBooks } from '../lib/googleBooks';
+import { Textbook, SaleListing } from '../types';
 
 export default function BookDetailPage() {
   const { pageParams, navigate, addToWishlist, toggleFavorite, favorites, wishlist } = useApp();
 
   const book = (pageParams.book as Textbook) || mockTextbooks[0];
+  const [resolvedPrice, setResolvedPrice] = useState(book.price);
+  const comparisons = useMemo(() => generatePriceComparisons(resolvedPrice), [resolvedPrice]);
+  const [peerListings, setPeerListings] = useState<SaleListing[]>([]);
+
+  useEffect(() => {
+    if (book.price > 0) return;
+    const lookupPrice = async () => {
+      if (!book.isbn) return;
+      const results = await searchBooks(book.isbn, 'isbn');
+      if (results.length > 0 && results[0].price > 0) setResolvedPrice(results[0].price);
+    };
+    lookupPrice();
+  }, [book.isbn, book.price]);
+
+  useEffect(() => {
+    if (book.isbn) {
+      api.fetchListings(book.isbn).then(setPeerListings);
+    }
+  }, [book.isbn]);
 
   const isFavorited = favorites.some((f) => f.productId === book.productId);
   const isInWishlist = wishlist.some((w) => w.book.productId === book.productId);
-  const bestPrice = Math.min(...mockPriceComparisons.map((p) => p.price));
-  const savings = book.price - bestPrice;
-  const savingsPct = Math.round((savings / book.price) * 100);
+  const bestPrice = Math.min(...comparisons.map((p) => p.price));
+  const savings = resolvedPrice - bestPrice;
+  const savingsPct = resolvedPrice > 0 ? Math.round((savings / resolvedPrice) * 100) : 0;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -115,7 +138,7 @@ export default function BookDetailPage() {
               </div>
               {savings > 0 && (
                 <div className="border-l border-emerald-200 pl-4">
-                  <p className="text-xs text-slate-500 mb-0.5">vs list price ${book.price.toFixed(2)}</p>
+                  <p className="text-xs text-slate-500 mb-0.5">vs list price ${resolvedPrice.toFixed(2)}</p>
                   <p className="text-lg font-bold text-emerald-600">
                     Save ${savings.toFixed(2)} ({savingsPct}%)
                   </p>
@@ -131,11 +154,18 @@ export default function BookDetailPage() {
             )}
           </div>
 
-          <PriceComparisonTable comparisons={mockPriceComparisons} listPrice={book.price} />
+          <PriceComparisonTable comparisons={comparisons} listPrice={book.price} />
 
           <div className="bg-white rounded-xl border border-slate-200 p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-slate-800">Student Marketplace Listings</h3>
+              <h3 className="font-semibold text-slate-800">
+                Student Marketplace Listings
+                {peerListings.length > 0 && (
+                  <span className="ml-2 text-xs font-medium bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+                    {peerListings.length}
+                  </span>
+                )}
+              </h3>
               <button
                 onClick={() => navigate('marketplace')}
                 className="text-sm text-emerald-600 hover:text-emerald-700 font-medium"
@@ -143,16 +173,29 @@ export default function BookDetailPage() {
                 View all
               </button>
             </div>
-            <div className="text-center py-8 text-slate-400">
-              <BookOpen className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-              <p className="text-sm">No peer listings yet for this book.</p>
-              <button
-                onClick={() => navigate('create-listing')}
-                className="mt-3 text-sm text-emerald-600 font-medium hover:text-emerald-700"
-              >
-                Create a listing
-              </button>
-            </div>
+
+            {peerListings.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {peerListings.map((listing) => (
+                  <ListingCard
+                    key={listing.listingId}
+                    listing={listing}
+                    onContact={() => navigate('marketplace')}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-slate-400">
+                <BookOpen className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                <p className="text-sm">No peer listings yet for this book.</p>
+                <button
+                  onClick={() => navigate('create-listing', { book })}
+                  className="mt-3 text-sm text-emerald-600 font-medium hover:text-emerald-700"
+                >
+                  Create a listing
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

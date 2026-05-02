@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { SlidersHorizontal, ArrowUpDown } from 'lucide-react';
+import { SlidersHorizontal, ArrowUpDown, AlertCircle } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import SearchBar from '../components/ui/SearchBar';
 import BookCard from '../components/ui/BookCard';
-import { mockTextbooks } from '../data/mockData';
+import { searchBooks } from '../lib/googleBooks';
 import { Textbook, SearchType, SortOption } from '../types';
 
 const sortOptions: { value: SortOption; label: string }[] = [
@@ -21,35 +21,28 @@ export default function SearchPage() {
   const [results, setResults] = useState<Textbook[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [error, setError] = useState('');
 
-  const performSearch = (q: string, type: SearchType) => {
+  const performSearch = async (q: string, type: SearchType) => {
+    if (!q.trim()) return;
     setQuery(q);
     setSearchType(type);
     setLoading(true);
     setSearched(true);
-    setTimeout(() => {
-      let filtered = [...mockTextbooks];
-      if (q) {
-        const lower = q.toLowerCase();
-        filtered = filtered.filter((b) => {
-          if (type === 'title') return b.title.toLowerCase().includes(lower);
-          if (type === 'isbn') return b.isbn.includes(lower);
-          if (type === 'author') return b.author.toLowerCase().includes(lower);
-          return true;
-        });
-      }
-      setResults(filtered);
+    setError('');
+    try {
+      const books = await searchBooks(q, type);
+      setResults(books);
+    } catch {
+      setError('Failed to fetch results. Please try again.');
+      setResults([]);
+    } finally {
       setLoading(false);
-    }, 600);
+    }
   };
 
   useEffect(() => {
-    if (pageParams.query !== undefined || query) {
-      performSearch(query || '', searchType);
-    } else {
-      setResults(mockTextbooks);
-      setSearched(true);
-    }
+    if (query) performSearch(query, searchType);
   }, []);
 
   const sortedResults = [...results].sort((a, b) => {
@@ -126,7 +119,14 @@ export default function SearchPage() {
         </div>
       )}
 
-      {!loading && searched && sortedResults.length === 0 && (
+      {error && (
+        <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg mb-6">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      {!loading && searched && sortedResults.length === 0 && !error && (
         <div className="text-center py-16">
           <SlidersHorizontal className="w-12 h-12 text-slate-300 mx-auto mb-4" />
           <h3 className="text-lg font-semibold text-slate-700 mb-2">No results found</h3>

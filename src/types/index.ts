@@ -78,6 +78,7 @@ export interface Transaction {
 }
 
 export interface WishlistItem {
+  djangoId?: number;
   book: Textbook;
   addedDate: string;
   lowestPrice?: number;

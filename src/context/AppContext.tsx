@@ -5,15 +5,9 @@ import {
   signOut,
   onAuthStateChanged,
 } from 'firebase/auth';
-import {
-  doc,
-  setDoc,
-  getDoc,
-  collection,
-  getDocs,
-  deleteDoc,
-} from 'firebase/firestore';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
+import * as api from '../lib/api';
 import { Page, User, Textbook, WishlistItem } from '../types';
 
 interface AppContextValue {
@@ -46,6 +40,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
+        // Load user profile from Firestore (name stored there at registration)
         const snap = await getDoc(doc(db, 'users', firebaseUser.uid));
         if (snap.exists()) {
           const data = snap.data();
@@ -57,11 +52,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
             wishList: [],
           });
         }
-        const wishlistSnap = await getDocs(
-          collection(db, 'users', firebaseUser.uid, 'wishlist')
-        );
-        const items: WishlistItem[] = wishlistSnap.docs.map((d) => d.data() as WishlistItem);
-        setWishlist(items);
+        // Load wishlist from Django
+        try {
+          const items = await api.fetchWishlist();
+          setWishlist(items);
+        } catch {
+          setWishlist([]);
+        }
       } else {
         setUser(null);
         setWishlist([]);
@@ -98,15 +95,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addToWishlist = async (book: Textbook) => {
     const exists = wishlist.some((w) => w.book.productId === book.productId);
     if (exists || !user) return;
-    const item: WishlistItem = { book, addedDate: new Date().toISOString().split('T')[0] };
+    const item = await api.addToWishlist(book);
     setWishlist((prev) => [...prev, item]);
-    await setDoc(doc(db, 'users', user.userId, 'wishlist', book.productId), item);
   };
 
   const removeFromWishlist = async (productId: string) => {
     if (!user) return;
+    const item = wishlist.find((w) => w.book.productId === productId);
+    if (!item?.djangoId) return;
     setWishlist((prev) => prev.filter((w) => w.book.productId !== productId));
-    await deleteDoc(doc(db, 'users', user.userId, 'wishlist', productId));
+    await api.removeFromWishlist(item.djangoId);
   };
 
   const toggleFavorite = (book: Textbook) => {

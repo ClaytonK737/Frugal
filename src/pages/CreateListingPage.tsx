@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { ArrowLeft, Upload, CheckCircle2, AlertCircle } from 'lucide-react';
-import { collection, addDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import * as api from '../lib/api';
 import { useApp } from '../context/AppContext';
-import { SaleListing } from '../types';
+import { SaleListing, Textbook } from '../types';
 
 interface ListingForm {
   isbn: string;
@@ -28,8 +27,15 @@ const emptyForm: ListingForm = {
 };
 
 export default function CreateListingPage() {
-  const { navigate, isAuthenticated, user } = useApp();
-  const [form, setForm] = useState<ListingForm>(emptyForm);
+  const { navigate, isAuthenticated, pageParams } = useApp();
+  const prefill = pageParams.book as Textbook | undefined;
+  const [form, setForm] = useState<ListingForm>({
+    ...emptyForm,
+    isbn: prefill?.isbn ?? '',
+    title: prefill?.title ?? '',
+    author: prefill?.author ?? '',
+    edition: prefill?.edition ?? '',
+  });
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -97,31 +103,20 @@ export default function CreateListingPage() {
     }
     setLoading(true);
     try {
-      const now = new Date().toISOString().split('T')[0];
-      const listing: Omit<SaleListing, 'listingId'> = {
-        price,
-        description: form.description,
-        status: 'active',
-        condition: form.condition as SaleListing['condition'],
-        sellerId: user!.userId,
-        sellerName: `${user!.firstName} ${user!.lastName}`,
-        createdDate: now,
-        product: {
-          productId: crypto.randomUUID(),
-          name: form.title,
-          title: form.title,
-          author: form.author,
-          isbn: form.isbn,
-          edition: form.edition,
-          publisher: '',
-          description: form.description,
-          price: 0,
-          category: 'textbook',
-          createdDate: now,
-        },
+      const book: Textbook = prefill ?? {
+        productId: crypto.randomUUID(),
+        name: form.title,
+        title: form.title,
+        author: form.author,
+        isbn: form.isbn,
+        edition: form.edition,
+        publisher: '',
+        description: '',
+        price: 0,
+        category: 'textbook',
+        createdDate: new Date().toISOString().split('T')[0],
       };
-      const ref = await addDoc(collection(db, 'listings'), listing);
-      await ref;
+      await api.createListing(book, price, form.condition as SaleListing['condition'], form.description);
       setSubmitted(true);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to create listing.');
