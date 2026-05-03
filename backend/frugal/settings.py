@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+from decouple import config
 import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -133,6 +134,5 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-
-KROGER_CLIENT_ID     = os.environ.get('KROGER_CLIENT_ID', '')
-KROGER_CLIENT_SECRET = os.environ.get('KROGER_CLIENT_SECRET', '')
+KROGER_CLIENT_ID     = config('KROGER_CLIENT_ID', default='')
+KROGER_CLIENT_SECRET = config('KROGER_CLIENT_SECRET', default='')
