@@ -4,6 +4,8 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from .models import Textbook, SaleListing, WishlistItem
 from .serializers import TextbookSerializer, SaleListingSerializer, WishlistItemSerializer
+import base64, time, requests
+from django.conf import settings
 
 
 # --- Textbooks ---
@@ -120,3 +122,94 @@ def wishlist_item(request, pk):
         return Response(status=status.HTTP_404_NOT_FOUND)
     item.delete()
     return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+
+_kroger_token_cache: dict = {}
+
+def _get_kroger_token():
+    now = time.time()
+    if _kroger_token_cache.get('expires_at', 0) > now + 60:
+        return _kroger_token_cache['access_token']
+    credentials = f"{settings.KROGER_CLIENT_ID}:{settings.KROGER_CLIENT_SECRET}"
+    encoded = base64.b64encode(credentials.encode()).decode()
+    resp = requests.post(
+        'https://api.kroger.com/v1/connect/oauth2/token',
+        headers={'Authorization': f'Basic {encoded}', 'Content-Type': 'application/x-www-form-urlencoded'},
+        data={'grant_type': 'client_credentials', 'scope': 'product.compact'},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    _kroger_token_cache['access_token'] = data['access_token']
+    _kroger_token_cache['expires_at'] = now + data.get('expires_in', 1800)
+    return _kroger_token_cache['access_token']
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def grocery_search(request):
+    query = request.query_params.get('q', '').strip()
+    location_id = request.query_params.get('location_id')
+    if not query:
+        return Response({'error': 'q is required'}, status=400)
+    try:
+        token = _get_kroger_token()
+        params = {'filter.term': query, 'filter.limit': 20}
+        if location_id:
+            params['filter.locationId'] = location_id
+        resp = requests.get(
+            'https://api.kroger.com/v1/products',
+            headers={'Authorization': f'Bearer {token}', 'Accept': 'application/json'},
+            params=params, timeout=10,
+        )
+        resp.raise_for_status()
+        results = []
+        for item in resp.json().get('data', []):
+            price_info = {}
+            if item.get('items'):
+                first = item['items'][0]
+                price_info = {
+                    'regular_price': first.get('price', {}).get('regular'),
+                    'promo_price': first.get('price', {}).get('promo'),
+                    'size': first.get('size'),
+                }
+            results.append({
+                'product_id': item.get('productId'),
+                'name': item.get('description'),
+                'brand': item.get('brand'),
+                'category': (item.get('categories') or [''])[0],
+                'image_url': ((item.get('images') or [{}])[0].get('sizes') or [{}])[-1].get('url'),
+                **price_info,
+            })
+        return Response({'results': results})
+    except Exception as e:
+        return Response({'error': str(e)}, status=502)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def nearby_stores(request):
+    try:
+        lat = float(request.query_params['lat'])
+        lng = float(request.query_params['lng'])
+    except (KeyError, ValueError):
+        return Response({'error': 'lat and lng are required'}, status=400)
+    try:
+        token = _get_kroger_token()
+        resp = requests.get(
+            'https://api.kroger.com/v1/locations',
+            headers={'Authorization': f'Bearer {token}', 'Accept': 'application/json'},
+            params={'filter.latLong.near': f'{lat},{lng}', 'filter.radiusInMiles': 10, 'filter.limit': 5},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return Response({'stores': [{
+            'location_id': s.get('locationId'),
+            'name': s.get('name'),
+            'address': s.get('address', {}).get('addressLine1'),
+            'city': s.get('address', {}).get('city'),
+            'distance': s.get('geolocation', {}).get('distanceInMiles'),
+        } for s in resp.json().get('data', [])]})
+    except Exception as e:
+        return Response({'error': str(e)}, status=502)
