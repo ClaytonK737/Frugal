@@ -8,4 +8,6 @@ urlpatterns = [
     path('listings/<int:pk>/', views.listing_detail),
     path('wishlist/', views.wishlist),
     path('wishlist/<int:pk>/', views.wishlist_item),
+    path('groceries/search/', views.grocery_search),
+    path('groceries/stores/', views.nearby_stores),
 ]
