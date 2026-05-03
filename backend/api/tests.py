@@ -1,6 +1,10 @@
 from django.test import TestCase
 from django.db.utils import IntegrityError
 from decimal import Decimal
+from rest_framework import status
+from rest_framework.test import APITestCase
+
+from .authentication import FirebaseUser
 from .models import Textbook, SaleListing, WishlistItem
 
 
@@ -158,3 +162,308 @@ class WishlistItemModelTest(TestCase):
         item_id = self.item.pk
         self.book.delete()
         self.assertFalse(WishlistItem.objects.filter(pk=item_id).exists())
+
+# --- API views (basis paths per textbook_list, textbook_detail, listing_list, listing_detail, wishlist) ---
+
+def _sample_book_payload(**overrides):
+    base = {
+        'name': 'API Test Book',
+        'title': 'API Test Book',
+        'author': 'Test Author',
+        'price': '19.99',
+        'category': 'textbook',
+        'google_books_id': 'api_test_gb_1',
+    }
+    base.update(overrides)
+    return base
+
+
+class TextbookListAPITest(APITestCase):
+    """Basis paths: GET (no filter, google_books_id, isbn, both); POST (get_or_create new/existing, serializer ok/fail)."""
+
+    def setUp(self):
+        self.url = '/api/textbooks/'
+        self.book = Textbook.objects.create(
+            **_sample_book_payload(
+                name='Listed Book',
+                title='Listed Book',
+                google_books_id='filter_me',
+                isbn='111-1111111111',
+            ),
+        )
+
+    def test_get_lists_all(self):
+        r = self.client.get(self.url)
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(r.data), 1)
+
+    def test_get_filter_google_books_id(self):
+        r = self.client.get(self.url, {'google_books_id': 'filter_me'})
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(r.data), 1)
+        self.assertEqual(r.data[0]['google_books_id'], 'filter_me')
+
+    def test_get_filter_isbn(self):
+        r = self.client.get(self.url, {'isbn': '111-1111111111'})
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(r.data), 1)
+
+    def test_get_filter_google_books_id_and_isbn(self):
+        r = self.client.get(
+            self.url,
+            {'google_books_id': 'filter_me', 'isbn': '111-1111111111'},
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(r.data), 1)
+
+    def test_post_get_or_create_returns_201_when_new(self):
+        payload = _sample_book_payload(
+            google_books_id='brand_new_id',
+            name='New From API',
+            title='New From API',
+        )
+        r = self.client.post(self.url, payload, format='json')
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(r.data['google_books_id'], 'brand_new_id')
+
+    def test_post_get_or_create_returns_200_when_exists(self):
+        r = self.client.post(
+            self.url,
+            _sample_book_payload(
+                google_books_id='filter_me',
+                title='Updated Title Attempt',
+            ),
+            format='json',
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.book.refresh_from_db()
+        self.assertEqual(self.book.title, 'Listed Book')
+
+    def test_post_without_google_books_id_valid_serializer_201(self):
+        payload = {
+            'name': 'No GB ID',
+            'title': 'No GB ID',
+            'author': 'A',
+            'price': '5.00',
+            'category': 'textbook',
+            'google_books_id': '',
+        }
+        r = self.client.post(self.url, payload, format='json')
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+
+    def test_post_without_google_books_id_invalid_400(self):
+        r = self.client.post(
+            self.url,
+            {'title': 'missing required fields'},
+            format='json',
+        )
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TextbookDetailAPITest(APITestCase):
+    def setUp(self):
+        self.book = Textbook.objects.create(**_sample_book_payload(google_books_id='detail_gb'))
+        self.url = f'/api/textbooks/{self.book.pk}/'
+
+    def test_get_found(self):
+        r = self.client.get(self.url)
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data['title'], 'API Test Book')
+
+    def test_get_not_found(self):
+        r = self.client.get('/api/textbooks/999999/')
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class ListingListAPITest(APITestCase):
+    """Basis paths: GET all active / filter isbn; POST unauthenticated, authenticated valid/invalid."""
+
+    def setUp(self):
+        self.url = '/api/listings/'
+        self.book = Textbook.objects.create(**_sample_book_payload(google_books_id='listing_book'))
+        self.listing = SaleListing.objects.create(
+            book=self.book,
+            seller_id='seller_a',
+            seller_name='Seller A',
+            price=Decimal('40.00'),
+            condition='good',
+        )
+        self.user = FirebaseUser(uid='seller_a', email='a@example.com', name='Seller A')
+
+    def test_get_only_active(self):
+        sold_book = Textbook.objects.create(
+            **_sample_book_payload(google_books_id='sold_book', title='Sold Title'),
+        )
+        SaleListing.objects.create(
+            book=sold_book,
+            seller_id='other',
+            seller_name='O',
+            price=Decimal('10.00'),
+            condition='good',
+            status='sold',
+        )
+        r = self.client.get(self.url)
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        ids = [row['id'] for row in r.data]
+        self.assertIn(self.listing.pk, ids)
+
+    def test_get_filter_by_isbn(self):
+        r = self.client.get(self.url, {'isbn': self.book.isbn})
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(r.data), 1)
+
+    def test_post_unauthenticated_401(self):
+        r = self.client.post(
+            self.url,
+            {
+                'book_id': self.book.pk,
+                'price': '30.00',
+                'condition': 'like-new',
+            },
+            format='json',
+        )
+        self.assertEqual(r.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_post_authenticated_201(self):
+        self.client.force_authenticate(user=self.user)
+        r = self.client.post(
+            self.url,
+            {
+                'book_id': self.book.pk,
+                'price': '35.50',
+                'condition': 'like-new',
+                'description': 'Nice copy.',
+            },
+            format='json',
+        )
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(r.data['seller_id'], 'seller_a')
+
+    def test_post_authenticated_invalid_400(self):
+        self.client.force_authenticate(user=self.user)
+        r = self.client.post(
+            self.url,
+            {'book_id': self.book.pk},
+            format='json',
+        )
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class ListingDetailAPITest(APITestCase):
+    """Basis paths: GET ok/404; PATCH/DELETE owner vs non-owner; PATCH valid/invalid; DELETE 204."""
+
+    def setUp(self):
+        self.book = Textbook.objects.create(**_sample_book_payload(google_books_id='detail_listing_book'))
+        self.owner = FirebaseUser(uid='owner_uid', email='o@example.com', name='Owner')
+        self.other = FirebaseUser(uid='other_uid', email='x@example.com', name='X')
+        self.listing = SaleListing.objects.create(
+            book=self.book,
+            seller_id='owner_uid',
+            seller_name='Owner',
+            price=Decimal('25.00'),
+            condition='fair',
+        )
+
+    def test_get_ok(self):
+        r = self.client.get(f'/api/listings/{self.listing.pk}/')
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data['seller_id'], 'owner_uid')
+
+    def test_get_not_found(self):
+        r = self.client.get('/api/listings/999999/')
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_patch_non_owner_403(self):
+        self.client.force_authenticate(user=self.other)
+        r = self.client.patch(
+            f'/api/listings/{self.listing.pk}/',
+            {'price': '20.00'},
+            format='json',
+        )
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_patch_unauthenticated_403(self):
+        r = self.client.patch(
+            f'/api/listings/{self.listing.pk}/',
+            {'price': '20.00'},
+            format='json',
+        )
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_patch_owner_valid(self):
+        self.client.force_authenticate(user=self.owner)
+        r = self.client.patch(
+            f'/api/listings/{self.listing.pk}/',
+            {'price': '22.00', 'condition': 'good'},
+            format='json',
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data['price'], '22.00')
+
+    def test_patch_owner_invalid_400(self):
+        self.client.force_authenticate(user=self.owner)
+        r = self.client.patch(
+            f'/api/listings/{self.listing.pk}/',
+            {'condition': 'not-a-valid-condition'},
+            format='json',
+        )
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delete_non_owner_403(self):
+        self.client.force_authenticate(user=self.other)
+        r = self.client.delete(f'/api/listings/{self.listing.pk}/')
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_delete_unauthenticated_403(self):
+        r = self.client.delete(f'/api/listings/{self.listing.pk}/')
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_delete_owner_204(self):
+        self.client.force_authenticate(user=self.owner)
+        r = self.client.delete(f'/api/listings/{self.listing.pk}/')
+        self.assertEqual(r.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(SaleListing.objects.filter(pk=self.listing.pk).exists())
+
+
+class WishlistAPITest(APITestCase):
+    """Basis paths: GET/POST authenticated; POST invalid; DELETE ok/wrong user/not found."""
+
+    def setUp(self):
+        self.book = Textbook.objects.create(**_sample_book_payload(google_books_id='wish_book'))
+        self.user = FirebaseUser(uid='wish_user', email='w@example.com', name='W')
+        self.url = '/api/wishlist/'
+
+    def test_get_requires_auth(self):
+        r = self.client.get(self.url)
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_get_returns_user_items(self):
+        WishlistItem.objects.create(user_id='wish_user', book=self.book)
+        self.client.force_authenticate(user=self.user)
+        r = self.client.get(self.url)
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(r.data), 1)
+
+    def test_post_valid_201(self):
+        self.client.force_authenticate(user=self.user)
+        r = self.client.post(self.url, {'book_id': self.book.pk}, format='json')
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(r.data['book']['id'], self.book.pk)
+
+    def test_post_invalid_400(self):
+        self.client.force_authenticate(user=self.user)
+        r = self.client.post(self.url, {}, format='json')
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delete_removes_item_204(self):
+        item = WishlistItem.objects.create(user_id='wish_user', book=self.book)
+        self.client.force_authenticate(user=self.user)
+        r = self.client.delete(f'/api/wishlist/{item.pk}/')
+        self.assertEqual(r.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_delete_wrong_user_404(self):
+        item = WishlistItem.objects.create(user_id='other_wish', book=self.book)
+        self.client.force_authenticate(user=self.user)
+        r = self.client.delete(f'/api/wishlist/{item.pk}/')
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(WishlistItem.objects.filter(pk=item.pk).exists())
