@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ShoppingCart, MapPin, AlertCircle, Loader2, Tag, Store } from 'lucide-react';
+import { ShoppingBag, MapPin, AlertCircle, Loader2, Tag, Store } from 'lucide-react';
 import {
   getUserLocation,
   getNearbyKrogerStores,
