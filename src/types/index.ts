@@ -96,5 +96,6 @@ export type Page =
   | 'wishlist'
   | 'favorites'
   | 'marketplace'
+  | 'grocery'
   | 'create-listing'
   | 'profile';
