@@ -128,7 +128,7 @@ export default function GroceryPage() {
       <form onSubmit={handleSearch} className="mb-8">
         <div className="flex gap-3">
           <div className="flex-1 relative">
-            <ShoppingCart className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <ShoppingBag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               type="text"
               value={query}
@@ -189,7 +189,7 @@ export default function GroceryPage() {
       {/* Empty state */}
       {!loading && searched && results.length === 0 && !error && (
         <div className="text-center py-16">
-          <ShoppingCart className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+          <ShoppingBag className="w-12 h-12 text-slate-300 mx-auto mb-4" />
           <h3 className="text-lg font-semibold text-slate-700 mb-2">No results found</h3>
           <p className="text-slate-500 text-sm">Try a different search term.</p>
         </div>
@@ -212,7 +212,7 @@ export default function GroceryPage() {
                     className="w-full h-full object-contain p-4"
                   />
                 ) : (
-                  <ShoppingCart className="w-12 h-12 text-slate-200" />
+                  <ShoppingBag className="w-12 h-12 text-slate-200" />
                 )}
               </div>
 
