@@ -9,6 +9,7 @@ export default function Navbar() {
   const navLinks = [
     { page: 'search' as const, label: 'Search Books', icon: BookOpen },
     { page: 'marketplace' as const, label: 'Marketplace', icon: ShoppingBag },
+    { page: 'grocery' as const, label: 'Groceries', icon: ShoppingCart },
     { page: 'wishlist' as const, label: 'Wishlist', icon: Heart, badge: wishlist.length },
     { page: 'favorites' as const, label: 'Favorites', icon: Star },
   ];
