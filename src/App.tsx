@@ -6,6 +6,7 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import SearchPage from './pages/SearchPage';
 import BookDetailPage from './pages/BookDetailPage';
+import GroceryPage from './pages/GroceryPage';
 import WishlistPage from './pages/WishlistPage';
 import FavoritesPage from './pages/FavoritesPage';
 import MarketplacePage from './pages/MarketplacePage';
@@ -34,6 +35,7 @@ function PageRouter() {
         {currentPage === 'home' && <HomePage />}
         {currentPage === 'search' && <SearchPage />}
         {currentPage === 'book-detail' && <BookDetailPage />}
+        {currentPage === 'grocery' && <GroceryPage />}
         {currentPage === 'wishlist' && <WishlistPage />}
         {currentPage === 'favorites' && <FavoritesPage />}
         {currentPage === 'marketplace' && <MarketplacePage />}
